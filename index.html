@@ -1,0 +1,313 @@
+<!-- ====================== EECS 493 Assignment 5 Starter Code ====================== -->
+<!DOCTYPE html>
+<html lang="en-US">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>493 Artist Search</title>
+
+  <link rel="stylesheet" href="index.css">
+
+  <!--
+    This page is served over http, so unlike Assignments 2 and 3 we can use
+    `type="module"` here, which is what we used in class. script.js imports Vue
+    itself, so there is no separate <script> tag for the library.
+  -->
+  <script type="module" src="script.js"></script>
+</head>
+
+<body>
+  <div id="app">
+
+    <!-- ============================= Sidebar ============================= -->
+    <aside class="sidebar" v-on:click="close_history">
+      <h1>Artist Search 493</h1>
+
+      <!-- Search -->
+      <search class="search">
+        <label class="visually-hidden" for="search-input">
+          Search for an artist
+        </label>
+      
+        <input id="search-input" class="search-input" type="search"
+               placeholder="type artist name and enter"
+               v-model="search_term"
+               v-on:keyup="handle_key"
+               v-on:click="open_history(); $event.stopPropagation()">
+      
+        <ul class="history"
+            v-if="history_open && search_history.length > 0"
+            v-on:click="$event.stopPropagation()">
+      
+          <li class="history-item"
+            v-for="term in visible_history"
+            v-bind:key="term"
+            v-on:mouseenter="hovered_history = term"
+            v-on:mouseleave="hovered_history = null">
+      
+            <button type="button"
+                    class="history-term"
+                    v-on:click="search_from_history(term)">
+              {{ term }}
+            </button>
+      
+        <button type="button"
+            class="history-remove"
+            v-show="hovered_history === term"
+            v-on:click="delete_history(term)">
+          ×
+        </button>
+      
+          </li>
+        </ul>
+      </search>
+
+      <!-- Favorites -->
+      <section class="favorites">
+        <h2>
+          <button type="button" class="favorites-toggle"
+            v-on:click="toggle_favorites">
+            <img src="./assets/Library.svg" alt="">
+            Favorites
+          </button>
+        </h2>
+      
+        <ul class="favorites-list" v-show="favorites_open">
+          <li class="favorite"
+              v-for="track in favorites"
+              v-bind:key="track.trackId"
+              v-on:mouseenter="hovered_favorite = track.trackId"
+              v-on:mouseleave="hovered_favorite = null">
+      
+          <button type="button"
+              class="favorite-play"
+              v-on:click="play_track(track)">
+              <img v-bind:src="hovered_favorite === track.trackId
+                      ? (is_track_playing(track.trackId)
+                      ? './assets/Pause.svg'
+                      : './assets/Play.svg')
+                      : get_artwork(track)"
+                alt="">
+          </button>
+      
+            <div class="favorite-text">
+              <span class="favorite-track">
+                {{ get_info(track.trackName) }}
+              </span>
+              <span class="favorite-artist">
+                {{ get_info(track.artistName) }}
+              </span>
+            </div>
+      
+            <button type="button"
+                    class="favorite-remove"
+                    v-show="hovered_favorite === track.trackId"
+                    v-on:click="remove_favorite(track.trackId)">
+              ×
+            </button>
+      
+          </li>
+        </ul>
+      </section>
+    </aside>
+
+    <!-- ============================== Main ============================== -->
+    <main class="main" v-on:click="close_history">
+
+      <!-- Player bar -->
+      <header class="player">
+        <div class="player-controls">
+          <button type="button" disabled>
+            <img src="./assets/Shuffle.svg"
+                 alt="Shuffle" class="icon-small">
+          </button>
+        
+          <button type="button" disabled>
+            <img src="./assets/Back.svg" alt="Previous">
+          </button>
+        
+          <button type="button"
+                  v-on:click="toggle_play">
+            <img v-bind:src="is_playing
+                            ? './assets/Pause.svg'
+                            : './assets/Play.svg'"
+                 alt="Play or pause">
+          </button>
+        
+          <button type="button"
+                  v-on:click="next_track">
+            <img src="./assets/Fwd.svg" alt="Next">
+          </button>
+        
+          <button type="button"
+                  v-on:click="toggle_repeat">
+            <img v-bind:src="is_repeating
+                            ? './assets/Repeating.svg'
+                            : './assets/Repeat.svg'"
+                 alt="Repeat" class="icon-small">
+          </button>
+        </div>
+
+        <!-- Whatever is playing goes here. -->
+        <div class="now-playing" v-if="current_track">
+          <img v-bind:src="get_artwork(current_track)"
+               width="60" height="60" alt="">
+        
+          <div class="now-playing-text">
+            <span class="now-playing-track">
+              {{ get_info(current_track.trackName) }}
+            </span>
+        
+            <span>
+              {{ get_info(current_track.artistName) }}
+            </span>
+        
+            <span>
+              {{ get_info(current_track.collectionName) }}
+            </span>
+        
+            <div class="progress">
+              <div class="progress-bar"
+                   v-bind:style="{ width: progress + '%' }">
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="now-playing-empty" v-else>
+          <img src="./assets/Song.svg" alt="">
+        </div>
+
+        <div class="player-volume">
+          <img src="./assets/VolumeDown.svg" alt="" class="icon-small">
+          <label class="visually-hidden" for="volume">Volume</label>
+          <input id="volume" type="range"
+              min="1" max="100"
+              v-model.number="volume"
+              v-on:input="update_volume"
+          >
+          <img src="./assets/VolumeUp.svg" alt="" class="icon-small">
+        </div>
+      </header>
+
+      <!-- Results -->
+      <section class="results">
+        <h2>Search Result</h2>
+        <p v-if="has_searched">Total {{ displayed_results.length }} found</p>
+        <!-- Genre filters -->
+        <div class="genres">
+          <button type="button" class="chip"
+                  v-bind:class="{'chip-selected': selected_genres.includes('ALL')}"
+                  v-on:click="select_genre('ALL')">
+            ALL
+          </button>
+        
+          <button type="button" class="chip"
+                  v-for="genre in genres"
+                  v-bind:key="genre"
+                  v-bind:class="{'chip-selected': selected_genres.includes(genre)}"
+                  v-on:click="select_genre(genre)">
+            {{ genre }}
+          </button>
+        </div>
+        <!-- Sort menu goes here. -->
+        <div class="sort">
+          <button type="button" class="sort-toggle"
+                  v-on:click="toggle_sort">
+            Sort By
+          </button>
+        
+          <div class="sort-menu" v-if="sort_open">
+        
+            <button type="button" class="sort-option"
+                    v-bind:class="{'sort-option-active': sort_type === 'original'}"
+                    v-on:click="select_sort('original')">
+              Reset to Original
+            </button>
+        
+            <button type="button" class="sort-option"
+                    v-bind:class="{'sort-option-active': sort_type === 'collection'}"
+                    v-on:click="select_sort('collection')">
+              Collection Name
+            </button>
+        
+            <button type="button" class="sort-option"
+                    v-bind:class="{'sort-option-active': sort_type === 'price'}"
+                    v-on:click="select_sort('price')">
+              Price
+            </button>
+        
+          </div>
+        </div>
+
+        <!-- One <li> per track. The grid in index.css decides how many fit per
+             row, so you do not need to work that out yourself. -->
+          <ul class="track-grid">
+            <li class="track" v-for="track in displayed_results"
+                v-bind:key="track.trackId">
+            
+                <img class="track-art"
+                     v-bind:src="get_artwork(track)" alt="">
+            
+                <div class="track-body">
+                  <div class="tabs" role="tablist">
+            
+                    <button type="button" class="tab"
+                            v-bind:class="{'tab-active': get_tab(track.trackId) === 'description'}"
+                            v-on:click="select_tab(track.trackId, 'description')"
+                            role="tab">
+                      Description
+                    </button>
+            
+                    <button type="button" class="tab"
+                            v-bind:class="{'tab-active': get_tab(track.trackId) === 'info'}"
+                            v-on:click="select_tab(track.trackId, 'info')"
+                            role="tab">
+                      Track Info.
+                    </button>
+            
+                  </div>
+            
+                  <div class="tab-panel" role="tabpanel">
+            
+                    <div v-if="get_tab(track.trackId) === 'description'">
+                      <p><strong>Artist Name:</strong> {{ get_info(track.artistName) }}</p>
+                      <p><strong>Track Name:</strong> {{ get_info(track.trackName) }}</p>
+                      <p><strong>Collection Name:</strong> {{ get_info(track.collectionName) }}</p>
+                      <p><strong>Collection Price:</strong> {{ get_info(track.collectionPrice ?? 0) }}</p>
+                    
+                      <div class="track-actions">
+                        <button type="button"
+                                class="track-play"
+                                v-on:click="play_track(track)">
+                          <img v-bind:src="is_track_playing(track.trackId)
+                                          ? './assets/Pause.svg'
+                                          : './assets/Play.svg'"
+                               alt="Play or pause">
+                        </button>
+                      
+                        <button type="button"
+                                class="track-favorite"
+                                v-on:click="toggle_favorite(track)">
+                          {{ is_favorite(track.trackId) ? '★' : '☆' }}
+                        </button>
+                      </div>
+                    </div>
+            
+                    <div v-else>
+                      <p><strong>Track ID:</strong> {{ track.trackId }}</p>
+                      <p><strong>Country:</strong> {{ track.country }}</p>
+                    </div>
+            
+                  </div>
+                </div>
+              </li>
+            </ul>
+      </section>
+    </main>
+
+  </div>
+</body>
+
+</html>
